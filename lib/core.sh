@@ -1,9 +1,17 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 ROOT=http://localhost:9515
 GET='curl -s -X GET'
 POST='curl -s -X POST -H "Content-Type: application/json"'
-DELETE='curl -s -X DELETE'
+
+# if empty, it will use the default browser. [ in testing ]
+
+#BROWSER_PATCH='/snap/bin/brave'
+#BROWSER_NAME='brave'
+#BROWSER_PATCH='/snap/bin/firefox'
+#BROWSER_NAME='firefox'
+#INTERNAL_OPTIONS='"--enable-automation", "--log-level=0", "--test-type=webdriver","--disable-gpu"'
+#INTERNAL_OPTIONS='"--disable-dev-shm-usage","--enable-automation"'
 
 ##############################
 # Session
@@ -14,17 +22,17 @@ is_ready() {
 }
 
 new_session() {
-  local chromeOptions=$(for i in $@; do printf "\"${i}\",";done | sed 's/,$//')
+  [[ ${INTERNAL_OPTIONS} ]] || local chromeOptions=$(for i in $@; do printf "\"${i//%/\\%}\",";done | sed 's/,$//')
   $POST -d '{
     "desiredCapabilities": {
       "browserName":"chrome",
-      "chromeOptions": {"args": ['${chromeOptions}'] }
+      "chromeOptions": { "args": [ '${chromeOptions}' ] }
     }
   }' ${ROOT}/session | jq -r '.sessionId'
 }
 
 delete_session() {
-  $DELETE ${BASE_URL} > /dev/null
+  curl -s -X DELETE ${BASE_URL} > /dev/null
 }
 
 get_cookies() {
@@ -34,10 +42,6 @@ get_cookies() {
 set_cookies() {
 	local cookie=$1
 	$POST -d "{\"cookie\": $cookie}" ${BASE_URL}/cookie >/dev/null
-}
-
-delete_cookies() {
-  	$DELETE ${BASE_URL}/cookie > /dev/null
 }
 
 ##############################
@@ -113,6 +117,7 @@ set_timeout_implicit() {
 #   - "class name"
 #   - "xpath"
 #
+
 find_element() {
   local property=$1
   local value=$2
@@ -141,10 +146,6 @@ find_elements_from_element() {
 
 get_active_element() {
   $GET ${BASE_URL}/element/active | jq -r '.value.ELEMENT'
-}
-
-get_alert_text() {
-  $GET ${BASE_URL}/alert/text | jq -r '.value'
 }
 
 ##############################
@@ -184,6 +185,10 @@ get_rect() {
   $GET ${BASE_URL}/element/${elementId}/rect | jq -r '.value'
 }
 
+get_page_source() {
+  $GET ${BASE_URL}/source | jq -r '.value'
+}
+
 is_element_enabled() {
   local elementId=$1
   $GET ${BASE_URL}/element/${elementId}/enabled | jq -r '.value'
@@ -197,11 +202,6 @@ send_keys() {
   local elementId=$1
   local value=$2
   $POST -d "{\"value\": [\"${value}\"]}" ${BASE_URL}/element/${elementId}/value >/dev/null
-}
-
-send_alert_text() {
-  local value=$1
-  $POST -d "{\"value\": [\"${value}\"]}" ${BASE_URL}/alert/text >/dev/null
 }
 
 click() {
@@ -218,18 +218,18 @@ element_clear() {
 # Document
 ##############################
 
-get_source() {
-	$GET ${BASE_URL}/source
+scroll() {
+  roll='window.scrollTo(0, document.body.scrollHeight);'
+  vezes=$1
+  pausa=$2
+  for((i=0;i<=$vezes;i++));do
+    $POST -d "{\"script\": \"$roll\", \"args\":[\"\"]}" ${BASE_URL}/execute/sync
+    sleep ${pausa}s
+  done
 }
 
 exec_script() {
   $POST -d "{\"script\": \"$1\", \"args\":[\"$2\"]}" ${BASE_URL}/execute/sync
-}
-
-element_screenshot() {
-  local elementId=$1
-  local path=${2:-./screenshot.png}
-  $GET ${BASE_URL}/element/${elementId}/screenshot | jq -r '.value' | base64 -d > $path
 }
 
 screenshot() {
@@ -262,44 +262,6 @@ new_window() {
 switch_to_window() {
   local handle=$1
   $POST -d "{\"name\":\"$handle\"}" ${BASE_URL}/window >/dev/null
-}
-
-#
-# param is
-#   - element
-#   - integer
-#   - id
-#
-switch_to_frame() {
-  local id=$1
-  local param="{\"id\":\"$id\"}"
-
-  # is element
-  local frameId=$(get_attribute $id 'id')
-  if ! echo $frameId | grep "stale element reference" >/dev/null ; then
-    $POST -d "{\"id\":\"$frameId\"}" ${BASE_URL}/frame >/dev/null
-    return
-  fi
-
-  if expr "$id" : "[0-9]*$" >&/dev/null;then # is integer
-    $POST -d "{\"id\":$id}" ${BASE_URL}/frame >/dev/null
-  else # is id
-    $POST -d "{\"id\":\"$id\"}" ${BASE_URL}/frame >/dev/null
-  fi
-}
-
-switch_to_parent_frame() {
-  $POST ${BASE_URL}/frame/parent >/dev/null
-}
-
-dismiss_alert() {
-  local handle=$1
-  $POST ${BASE_URL}/alert/dismiss >/dev/null
-}
-
-accept_alert() {
-  local handle=$1
-  $POST ${BASE_URL}/alert/accept >/dev/null
 }
 
 get_window_rect() {
